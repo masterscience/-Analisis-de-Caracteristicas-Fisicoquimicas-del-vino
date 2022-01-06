@@ -1,0 +1,509 @@
+---
+title: "Práctica 2"
+author: "Edita Talledo"
+date: "Dic 2021"
+output:
+  pdf_document:
+    keep_tex: true
+    toc: True
+    toc_depth: 2
+    number_sections: True
+    highlight: zenburn
+fontsize: 11pt
+mainfont: "Arial"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+\pagebreak
+
+
+# DESCRIPCION DEL DATASET
+
+&nbsp;
+
+Este dataset [Cortez et al., 2009] contiene caracteristicas fisícoquimicas del vino portugues, como son el pH, la densidad, la acidez entre otros que permiten determinar la calidad de un buen vino. 
+
+&nbsp;
+
+**LECTURA DE DATOS**
+
+ 
+```{r message= FALSE, warning=FALSE}
+data<-read.csv("./winequality-red.csv",header=T,sep=",")
+```
+
+&nbsp;
+
+**ATRIBUTOS** 
+
+```{r message= FALSE, warning=FALSE}
+str(data)
+```
+
+&nbsp;
+
+Descripción de variables
+
+
+* fixed.acidity       :   ácidez fija o total (ácido tartárico y málico) provenientes de la uva.
+* volatile.acidity    :   ácidez volátil o ácido acético adquirida en la vinificación.
+* citric.acid         :   ácido citrico procedende de la uva.
+* residual.sugar      :   azucar residual.
+* chlorides           :   Cloruros.
+* free.sulfur.dioxide :   Dioxido de azufre Libre incluidos en la conservación.
+* total.sulfur.dioxide:   Dioxido de azufre total de  incluidos en la conservación.
+* density             :   Densidad.
+* pH                  :   medida de acidez-pH.
+* sulphates           :   Sulfatos incluidos en la conservación.
+* alcohol             :   Alcohol.
+* quality             :   Calidad.
+
+&nbsp;
+
+Este dataset contiene 1599 observaciones y 12 atributos, los cuales uno de ellos provee la calidad del vino en 10 categorias.
+
+## ¿Porque es importante y que pregunta/problema pretende responder/resolver?
+
+El conocimiento de la calidad de un vino es parte importante en procesos de certificación los cuales buscan asegurar un buen producto, de calidad y seguros para la salud de las personas.
+El conjunto de datos permitira construir un modelo de clasificación a partir de sus atributos fisicoquímicos, ya que estos tienen asignados una calificación en la variable objeto (*quality*) que permitira al modelo aprender a clasificar. Para este fin se empleará el método de regresión logística.
+
+
+# INTEGRACIÓN Y SELECIÓN DE DATOS DE INTERES
+
+```{r}
+titulos = c("fixed.acidity","volatile.acidity","citric.acid",
+            "residual.sugar","chlorides", "free.sulfur.dioxide",
+            "total.sulfur.dioxide","density","pH", "sulphates",
+            "alcohol", "quality")
+
+par(mfrow=c(3,4))
+pl = lapply(X=titulos, FUN=function(s)
+   hist(data[, s], main=paste(s)))
+```
+
+
+Por ahora cada variable contenida en el dataset es importante, la eliminación de alguna de ellas dependera de su aporte al modelo y esto será evaluado en el apartado 4. Ahora analizemos la variable *quality*, como se observa de los histogramas es de tipo categórico y sus categorias son:
+
+```{r}
+unique(data$quality)
+```
+
+&nbsp;
+
+Segun el documento de Cortez este atributo esta clasificado en 10 categorias, de las cuales en este dataset estan presentes solo 6 de ellas. Por tal, para un mejor análisis reagrupamos la variable en 2 categorias y la guardamos en una nueva variable *quality_c*: 
+
+
+```{r}
+data$quality_c[0 < data$quality & data$quality < 7] <- "baja"
+data$quality_c[7 <= data$quality & data$quality < 10] <- "alta"
+```
+
+
+&nbsp;
+
+Lo convertimos a factor
+
+```{r}
+data[c(13)] <- lapply(data[c(13)], factor)
+```
+
+&nbsp;
+
+# LIMPIEZA DE DATOS
+
+&nbsp;
+
+## ¿Los datos contienen ceros o elementos vacios
+
+```{r}
+missing(data)
+```
+
+Como se puede ver, del comando anterior el dataset no contiene datos nulos o vacios
+
+## ¿Como gestionarias cada uno de estos casos?
+
+En caso se hubieran encontrado NA, primero emepezariamos por conocer el porcentaje de NA, luego decidir si se eliminan, se  conservan, se imputan por la media, o por algún otro método como el kNN (vecinos mas cercanos). 
+
+&nbsp;
+ 
+## Identificación y tratamiento de valores extremos
+
+<br>
+
+Para identificar valores extremos podemos ayudarnos de los boxplot.
+
+```{r echo=FALSE}
+data_n = data[c(1:11)]
+titulos = c("fixed.acidity","volatile.acidity","citric.acid",
+            "residual.sugar","chlorides","free.sulfur.dioxide",
+            "total.sulfur.dioxide", "density","pH", "sulphates",
+            "alcohol")
+par(mfrow=c(2,6))
+pl = lapply(X=titulos, FUN=function(s)
+   boxplot(data_n[, s], main=paste(s), col="#DF536B", boxwex = 1,
+           horizontal = FALSE))
+```
+
+
+Se aprecia valores extremos en muchas variables. Una situación ideal sería conocer los rangos permitidos de cada una de las variables para poder tomar una decisión adecuada sobre los datos. En esta oportunidad como no se cuenta con esta información se procedera a reemplazar los outliers por sus medianas, luego se verificará su pertinencia al evaluar los modelos.  
+
+Creamos una función que sustituira los outliers con la mediana de los datos.
+
+```{r}
+remove_outliers <- function(x) {
+  qnt <- quantile(x, probs=c(.25, .75))
+  lim <- 1.5 * IQR(x)
+  y <- x
+  me = median(x)
+  y[x < (qnt[1] - lim)] <- me
+  y[x > (qnt[2] + lim)] <- me
+  y
+}
+```
+
+Ahora lo aplicamos sobre cada uno de los datos.
+
+```{r include=FALSE}
+data$fixed.acidity.new = remove_outliers(data$fixed.acidity)
+data$volatile.acidity.new = remove_outliers(data$volatile.acidity)
+data$citric.acid.new = remove_outliers(data$citric.acid)
+data$residual.sugar.new = remove_outliers(data$residual.sugar)
+data$chlorides.new = remove_outliers(data$chlorides)
+data$free.sulfur.dioxide.new = remove_outliers(data$free.sulfur.dioxide)
+data$total.sulfur.dioxide.new = remove_outliers(data$total.sulfur.dioxide)
+data$density.new = remove_outliers(data$density)
+data$pH.new = remove_outliers(data$pH)
+data$sulphates.new = remove_outliers(data$sulphates)
+data$alcohol.new = remove_outliers(data$alcohol)
+```
+
+Verificamos
+
+```{r echo=FALSE}
+data_new = data[c(14:24)]
+titulos = c("fixed.acidity.new","volatile.acidity.new","citric.acid.new",
+            "residual.sugar.new","chlorides.new","free.sulfur.dioxide.new",
+            "total.sulfur.dioxide.new", "density.new","pH.new",
+            "sulphates.new","alcohol.new")
+par(mfrow=c(2,6))
+pl = lapply(X=titulos, FUN=function(s)
+   boxplot(data_new[, s], main=paste(s), col="#DF536B", boxwex = 1,
+           horizontal = FALSE))
+```
+
+Se ha logrado suprimir varios outliers.
+
+&nbsp;
+
+# ANÁLISIS DE LOS DATOS
+
+&nbsp;
+
+Como nos interesa evaluar la calidad del vino en función de cada una de las caracteristicas, se analizará las variables cuantitativas con respecto a las dos categorias de calidad: alta (calificación mayor o igual 7) y baja (calificación menor a 7). Luego aplicaremos las pruebas de normalidad, homocedasticidad y finalmente el test de medias entre los diferentes grupos.
+
+## Selección de los grupos de datos que se quieren comparar.
+
+
+**Exploración descriptiva según grupos de calidad**
+
+```{r echo=FALSE}
+par(mfrow=c(2,6))
+boxplot(fixed.acidity.new ~ quality_c, data = data, main = "Acidez Total",
+              col = 2:3, boxwex = 0.5)
+boxplot(volatile.acidity.new ~ quality_c, data = data, main = "Acidez
+              Volatil",col = 2:3, boxwex = 0.5)
+boxplot(citric.acid.new ~ quality_c, data = data, main = "Acido Citrico",
+        col = 2:3, boxwex = 0.5)
+boxplot(residual.sugar.new ~ quality_c, data = data, main = "Azucar
+              Residual",col = 2:3, boxwex = 0.5)
+boxplot(chlorides.new ~ quality_c, data = data, main = "Cloruros",
+              col = 2:3,boxwex = 0.5)
+boxplot(free.sulfur.dioxide.new ~ quality_c, data = data,
+              main = "Dioxido de Sulfuro libre", col = 2:3, boxwex = 0.5)
+boxplot(total.sulfur.dioxide.new ~ quality_c, data = data,
+              main = "Dioxido de sulfuro", col = 2:3, boxwex = 0.5)
+boxplot(density.new ~ quality_c, data = data, main = "Densidad", col = 2:3,
+              boxwex = 0.5)
+boxplot(pH.new ~ quality_c, data = data, main = "pH", col = 2:3,
+              boxwex = 0.5)
+boxplot(sulphates.new ~ quality_c, data = data, main = "Sulfatos",
+               col = 2:3, boxwex = 0.5)
+boxplot(alcohol.new ~ quality_c, data = data, main = "Alcohol",
+               col = 2:3, boxwex = 0.5)
+```
+
+Para vinos de alta calidad, se observo que la acidez total, el acido cítrico, los sulfatos y el alcohol tienen medianas mayores en comparación de la mediana de vinos de baja calidad.
+Por el contrario, valores menores de la mediana se observa para la ácidez volatil, los cloruros, los dioxidos de sulfuros, la densidad y el pH en altas calidades de vinos. Estos comportamientos coinciden con lo establecido en la literatura, ya que se conoce que vinos de alta calidad suelen tener alta acidez fija y baja acidez volatil que suele ser la acidez final después del proceso de vinificación, también se espera altos valores de alcohol y bajo pH.
+
+## Comprobación de la normalidad y homogeneidad de la varianza.
+
+Se llevaran a cabo las pruebas estadísticas de normalidad y homocedasticidad también considerando las dos categorias de vino
+
+&nbsp;
+
+**PRUEBAS ESTADITICAS DE NORMALIDAD**
+
+```{r}
+shapiro.test(data$fixed.acidity.new)$p.value                          
+shapiro.test(data$volatile.acidity.new)$p.value
+shapiro.test(data$citric.acid.new)$p.value
+shapiro.test(data$residual.sugar.new)$p.value
+shapiro.test(data$chlorides.new)$p.value
+shapiro.test(data$free.sulfur.dioxide.new)$p.value
+shapiro.test(data$total.sulfur.dioxide.new)$p.value
+shapiro.test(data$density.new)$p.value
+shapiro.test(data$pH.new)$p.value
+shapiro.test(data$sulphates.new)$p.value
+shapiro.test(data$alcohol.new)$p.value
+```
+
+Como se puede observar de los resultados anteriores, las pruebas de normalidad dan un p-valor menor al valor de significancia (0.05), se rechaza la hipotesis nula y se concluye que las variables no siguen  una distribución normal.
+
+&nbsp;
+
+**PRUEBAS DE HOMOCEDASTICIDAD**
+
+&nbsp;
+
+```{r}  
+#include = FALSE, echo = FALSE
+fligner.test(fixed.acidity.new ~ quality_c, data = data)$p.value     
+fligner.test(volatile.acidity.new ~ quality_c, data = data)$p.value
+fligner.test(citric.acid.new ~ quality_c, data = data)$p.value
+fligner.test(residual.sugar.new ~ quality_c, data = data)$p.value   
+fligner.test(chlorides.new ~ quality_c, data = data)$p.value 
+fligner.test(free.sulfur.dioxide.new ~ quality_c, data = data)$p.value
+fligner.test(total.sulfur.dioxide.new ~ quality_c, data = data)$p.value
+fligner.test(density.new ~ quality_c, data = data)$p.value
+fligner.test(pH.new ~ quality_c, data = data)$p.value
+fligner.test(sulphates.new ~ quality_c, data = data)$p.value
+fligner.test(alcohol.new ~ quality_c, data = data)$p.value
+```
+ 
+ De las pruebas de homocedasticidad se obtuvo dos grupos:
+ 
+ *  El primero, con p-valores menores a 0.05, se rechaza la hipotesis nula, por lo tanto se afirma que las varianzas de los grupos son estadisticamente diferentes y estos son: fixed.acidity, volatile.acidity, chlorides, free.sulfur.dioxide, total.sulfur.dioxide y density.
+
+ * El segundo, donde las pruebas de homocedasticidad dan un p-valor mayor al valor de significancia, se acepta la hipotesis nula y se concluye que los grupos son homocedasticos es decir tienen varianzas estadisticamente iguales con un nivel de confianza del 95% y estos son: citric.acid, residual.sugar, pH, sulphates y alcohol.
+
+&nbsp;
+
+## Aplicación de pruebas estadísticas para comparar los grupos de datos. En función de los datos y el objetivo del estudio, aplicar pruebas de contraste de hipótesis, correlaciones, regresiones, etc. Aplicar al menos tres métodos de análisis diferentes.
+
+Habiendo obtenido los resultados de normalidad y homocedasticidad y observando que las variables no cumplen los criterios pasaremos a aplicar la prueba de Wilcoxon para determinar si los grupos *alta y baja* tienen o no distribuciones estadisticamente diferentes para cada una de los atributos del vino.
+
+&nbsp;
+
+
+**TEST DE WILCOXON**
+
+
+```{r}
+wilcox.test(fixed.acidity.new ~ quality_c, data = data)$p.value
+wilcox.test(volatile.acidity.new ~ quality_c, data = data)$p.value
+wilcox.test(chlorides.new ~ quality_c, data = data)$p.value
+wilcox.test(free.sulfur.dioxide.new ~ quality_c, data = data)$p.value
+wilcox.test(total.sulfur.dioxide.new ~ quality_c, data = data)$p.value
+wilcox.test(density.new ~ quality_c, data = data)$p.value
+wilcox.test(citric.acid.new ~ quality_c, data = data)$p.value   
+wilcox.test(residual.sugar.new ~ quality_c, data = data)$p.value 
+wilcox.test(pH.new ~ quality_c, data = data)$p.value 
+wilcox.test(sulphates.new ~ quality_c, data = data)$p.value 
+wilcox.test(alcohol.new ~ quality_c, data = data)$p.value 
+```
+
+Se observa, excepto *residual.sugar*, en todas las pruebas que el p-valor es menor que el valor de significancia, luego se rechaza la hipotesis nula y se concluye que los grupos en análisis poseen distribuciones estadisticamente diferentes.
+
+&nbsp;
+
+**CORRELACIÓN**
+
+Deseamos conocer la relación entre las variables a manera de poder seleccionar aquellas que aportar mayor información al modelo de predicción. Para ello usaremos el comando **cor** y ya que las variables no cumplen con el criterio de normalidad emplearemos la correlación de **Spearman**.
+
+
+```{r message= FALSE, warning=FALSE}
+library(corrplot)
+
+mcor_mean <- cor(na.omit(data[c(14:24)]), method = c("spearman"))
+col <- colorRampPalette(c("#BB4444", "#EE9988", "#FFFFFF", "#77AADD",
+                          "#4477AA"))
+corrplot(mcor_mean, method = "shade", shade.col = NA,
+         tl.col = "black", tl.srt = 45, col = col(200),
+         addCoef.col = "black",cl.pos = "n", order = "AOE",
+         tl.cex=0.7, number.cex=0.6)
+```
+
+De la matriz de correlación se observa que existe una relación lineal moderada tanto positiva como negativa entre algunas variables. Para las variables con r>=|0.3| se evaluará si estas son significativamente diferente de cero. Emplearemos *cor.test*
+
+```{r message= FALSE, warning=FALSE,}
+# message= FALSE, warning=FALSE, included=FALSE,
+cor.test(data$fixed.acidity, data$citric.acid, method = "spearman")$p.value
+cor.test(data$fixed.acidity, data$density, method = "spearman")$p.value
+cor.test(data$fixed.acidity, data$pH, method = "spearman")$p.value
+cor.test(data$volatile.acidity, data$citric.acid, method = "spearman")$p.value
+cor.test(data$citric.acid, data$density, method = "spearman")$p.value
+cor.test(data$citric.acid, data$sulphates, method = "spearman")$p.value
+cor.test(data$citric.acid, data$pH, method = "spearman")$p.value
+cor.test(data$residual.sugar, data$density, method = "spearman")$p.value
+cor.test(data$chlorides, data$density, method = "spearman")$p.value
+cor.test(data$free.sulfur.dioxide, data$total.sulfur.dioxide, method = "spearman")$p.value
+cor.test(data$fixed.acidity, data$citric.acid, method = "spearman")$p.value
+cor.test(data$density, data$pH, method = "spearman")$p.value
+cor.test(data$density, data$alcohol, method = "spearman")$p.value
+```
+
+A partir de los test de correlación se obtuvo un p-valor menor al nivel de significación, se rechaza la hipotesis nula y se concluye que la correlación entre las variables es significativamente diferente de cero. Entre estas variables destacan el acido citrico y la densidad que tienen alta correlación con muchas variables.
+
+&nbsp;
+
+**REGRESIÓN LOGÍSTICA**
+
+&nbsp;
+
+Habiendo determinado que la relación entre las variables cuantitavas, construiremos el modelo de regresión logistica que determinará la relación de nuestra variable dependiente en este caso *quality_c* y las explicativas. Empezaremos construyendo el modelo con una sola variable, luego se iran agregando la demás variables y observaremos el valor de información de Akike (AIC), que nos dira cuan bien se relaciona nuestra variable objeto con las variables explicativas. Antes recodificamos la variable *quality_c*.
+
+```{r}
+data$quality_c = as.integer(ifelse(data$quality_c=="alta", 1, 0))
+```
+
+
+```{r}
+rlg1 = glm(quality_c ~ fixed.acidity.new, data = data, family = "binomial")
+rlg1$aic
+```
+
+
+```{r include = FALSE}
+rlg2 = glm(quality_c ~ fixed.acidity+volatile.acidity , data = data,
+          family = "binomial")
+rlg2$aic
+
+rlg3 = glm(quality_c ~ fixed.acidity+volatile.acidity+citric.acid,
+           data = data,family = "binomial")
+rlg3$aic
+
+rlg4 = glm(quality_c ~ fixed.acidity+volatile.acidity+citric.acid+
+             residual.sugar,data = data, family = "binomial")
+rlg4$aic
+
+rlg5 = glm(quality_c ~ fixed.acidity+volatile.acidity+citric.acid+
+             residual.sugar+chlorides, data = data, family = "binomial")
+rlg5$aic
+
+rlg6 = glm(quality_c ~ fixed.acidity+volatile.acidity+citric.acid+
+             residual.sugar+chlorides+free.sulfur.dioxide, data = data,
+          family = "binomial")
+rlg6$aic
+
+rlg7 = glm(quality_c ~ fixed.acidity+volatile.acidity+citric.acid+
+             residual.sugar+chlorides+free.sulfur.dioxide+
+             total.sulfur.dioxide, data = data,family = "binomial")
+rlg7$aic
+
+rlg8 = glm(quality_c ~ fixed.acidity+volatile.acidity+citric.acid+
+             residual.sugar+chlorides+free.sulfur.dioxide+
+             total.sulfur.dioxide+density, data = data,family = "binomial")
+rlg8$aic
+
+rlg9 = glm(quality_c ~ fixed.acidity+volatile.acidity+citric.acid+
+             residual.sugar+chlorides+free.sulfur.dioxide+
+             total.sulfur.dioxide+density+pH,data = data,
+           family = "binomial")
+rlg9$aic
+
+rlg10 = glm(quality_c ~ fixed.acidity+volatile.acidity+citric.acid+
+              residual.sugar+chlorides+free.sulfur.dioxide+
+              total.sulfur.dioxide+density+pH+sulphates,data = data,
+            family = "binomial")
+rlg10$aic
+```
+
+```{r}
+rlg11 = glm(quality_c ~ fixed.acidity.new+volatile.acidity.new+citric.acid.new+
+              residual.sugar.new+chlorides.new+free.sulfur.dioxide.new+
+              total.sulfur.dioxide.new+density.new+pH.new+sulphates.new+alcohol.new,
+            data = data, family = "binomial")
+summary(rlg11)
+```
+
+Se observo que el AIC fue disminuyendo conforme se ingresaban las variables, para finalmente ir de 1252.4 a 908.57. También se sabe que a menor valor del AIC se tiene un mejor modelo ya que este valor considera la bondad de ajuste, como la complejidad del modelo. Por tal nos quedaremos con el último modelo y es el que contiene todas las variables. Por no extender mas el documento no se muestra los resultados de los modelos intermedios, solo se muestra el primer y el último modelo.
+
+Ahora analizamos los coeficientes del modelo seleccionado. A vista de los datos se observa que los p-valor asociados a las variables **volatile.acidity, total.sulfur.dioxide, sulphates y alcohol** son menores al nivel de significancia (0.05), por tal se rechaza la hipotesis nula y concluimos que solo estas variables son estadisticamente significativas.
+
+Ahora probemos construyendo el modelo solo con las variables significativas y retiramos las variables no significativas:
+
+```{r}
+rlg12 = glm(quality_c ~ volatile.acidity.new+total.sulfur.dioxide.new+
+              sulphates.new+alcohol.new,data = data, family = "binomial")
+#summary(rlg12)
+rlg12$aic
+```
+
+El valor de AIC ha disminuido ligeramente retirando las variables que son no significativas. Nos quedaremos con este modelo *rlg12*
+
+
+# REPRESENTACIÓN DE LOS RESULTADOS A PARTIR DE TABLAS O GRÁFICAS.
+
+&nbsp;
+
+**PREDICCIÓN DEL MODELO**
+
+Ahora evaluaremos nuestro modelo
+&nbsp;
+
+```{r message=FALSE, warning=FALSE}
+library(caret)
+prediccion = predict(rlg12, newdata = data[14:24], type = "response")
+data$prediccion = as.integer(ifelse(test=prediccion>0.5, yes = 1, no=0))
+# Variable quality_c
+data[c(13)] <- lapply(data[c(13)], factor)
+# Variable predicción
+data[c(25)] <- lapply(data[c(25)], factor)
+confusionMatrix(data$quality_c, data$prediccion)
+```
+
+A vista de los datos el modelo tiene una exactitud de 88%, pero mas nos interesa al sensibilidad cuyo valor es de 90%, que nos indica que el modelo tiene capacidad de clasificar correctamente el 90% de los registros de vino a partir de sus atributos fisicoquímicos.
+
+&nbsp;
+
+**CURVA ROC**
+
+&nbsp;
+
+```{r message=FALSE}
+library(pROC)
+prob = predict(rlg12,data, type = "response")
+r=roc(data$quality_c, prob, data=data)
+plot(r, print.auc = TRUE)
+```
+
+El valor del area bajo la curva (AUC) nos da información sobre la calidad del modelo, aqui obtuvimos un AUC = 0.871, por lo tanto se concluye que el modelo discrimina de forma excelente la calidad del vino.
+
+&nbsp;
+
+# RESOLUCIÓN DEL PROBLEMA.
+
+&nbsp;
+
+## A partir de los resultados obtenidos, ¿cuáles son las conclusiones?
+
+* Del diagrama de cajas se observo valores esperados en las medianas de las caracteristicas fisicoquímicas del vino para cada uno de los grupos de alta y baja calidad. Podriamos decir que se realizó una adecuada partición del grupo de calidad, así mismo que se cuenta con datos representativos ya que estos se comportan como se establece en la literatura.
+ 
+* Se obtuvo a partir de las pruebas estadísticas para cada una de las variables, que los grupos diferenciados de alta y baja calidad tienen distribuciones estadísticamente diferentes.
+
+* Se construyo el modelo de regresión logística considerando solo las siguientes variables:la acidez volatil, el dioxido de azufre total y  el alcohol, ya que solo estas resultaron ser estadisticamente significativas, pero estos resultados son coherentes ya que son estas variables las que se tienen que controlar para dar el grado de calidad esperada. El grado de acidez volatil es la acidez final producida la cual no debe ser muy alta pero la suficiente para dar frescura al vino, el dioxido de azufre incoorporado en algunos vinos para la conservación puede dar mal sabor al vino y el grado de alcohol es importante para dar el equilibrio de calidez al vino.
+
+* El modelo construido fue evaluado con el mismo conjunto de datos que se construyo el modelo. Se obtuvo una exactitud de 88%, una sensibilidad del 90% y un AUC del 88%, valores que indican el buen desempeño del modelo para clasificar.
+
+&nbsp;
+
+## ¿Los resultados permiten responder al problema?
+
+El modelo construido, dados los resultados de exactitud, sensibilidad y auc nos permiten tener cierta confianza para clasificar vinos, dadas sus especificaciones fisicoquímicas.
+Una buena estrategia para evaluar mejor el modelo puedo ser, dividir el modelo en dos grupos uno primer grupo serviría para construir el modelo y el segundo para evaluarlo, en lugar de usar el mismo conjunto de datos como se hizo en esta práctica. Esto daría un resultado mas confiable ya que serían datos nuevos los que estarian evaluando al modelo.
+
